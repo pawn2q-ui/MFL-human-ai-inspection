@@ -1,0 +1,34 @@
+# MFL 졸업논문 7차 실행 큐 (10/13 준비): 검토–적응 루프 반복 (A 모델, 2·3회차). 약 1시간 (GPU 40분 + CPU)
+#   1회차(queue6)의 적응 모델 예측으로 다음 200장/배관을 고르고(누적 400 → 600장/배관), 공식 모델(A_s1)에서 같은 설정으로 다시 적응한다.
+#   평가는 선택 집합을 모두 뺀 공통 집합(2회차 11,740장, 3회차 10,740장)에서 기준·1회차·2회차·3회차·무작위 모델을 같이 평가한다.
+# 실행: python -m mfl_thesis.run_queue queue7.txt   (중단되면 같은 명령으로 재개)
+# 끝나면: python pack_1012c.py  → results_1013_loop.zip 올리기
+
+# ---- 2회차 ----
+manifest_selA2.csv | python -m mfl_thesis.select_review --manifest manifest_selA.csv --preds preds/A_s1_adsel200/preds --split test --n 200 --score combo --out manifest_selA2.csv --list analysis/sel_A2.txt
+tiles/A_adsel400/tiles.json | python -m mfl_thesis.make_tiles --manifest manifest_selA2.csv --cond A --split adapt_sel --mode train --out tiles/A_adsel400
+runs/A_s1_adsel400/DONE | python -m mfl_thesis.train_condition --train tiles/A_adsel400 --val tiles/A_val --name A_s1_adsel400 --model runs/A_s1/weights/best.pt --epochs 5 --lr0 0.0005 --freeze 10 --batch 16 --seed 1
+preds/A_s1_adsel400/DONE | python -m mfl_thesis.infer_images --manifest manifest_selA2.csv --cond A --split test --models runs/A_s1_adsel400/weights/last.pt --outs preds/A_s1_adsel400
+eval_sel2/A_s1/metrics.json          | python -m mfl_thesis.evaluate --manifest manifest_selA2.csv --preds preds/A_s1/preds          --split test --out eval_sel2/A_s1
+eval_sel2/A_s1_ad200/metrics.json    | python -m mfl_thesis.evaluate --manifest manifest_selA2.csv --preds preds/A_s1_ad200/preds    --split test --out eval_sel2/A_s1_ad200
+eval_sel2/A_s1_adsel200/metrics.json | python -m mfl_thesis.evaluate --manifest manifest_selA2.csv --preds preds/A_s1_adsel200/preds --split test --out eval_sel2/A_s1_adsel200
+eval_sel2/A_s1_adsel400/metrics.json | python -m mfl_thesis.evaluate --manifest manifest_selA2.csv --preds preds/A_s1_adsel400/preds --split test --out eval_sel2/A_s1_adsel400
+eval_full2/A_s1_adsel400/metrics.json | python -m mfl_thesis.evaluate --manifest manifest_selA2.csv --preds preds/A_s1_adsel400/preds --split test --ap-conf 0.01 --out eval_full2/A_s1_adsel400
+eval_full2/A_s1/metrics.json          | python -m mfl_thesis.evaluate --manifest manifest_selA2.csv --preds preds/A_s1/preds          --split test --ap-conf 0.01 --out eval_full2/A_s1
+eval_full2/A_s1_adsel200/metrics.json | python -m mfl_thesis.evaluate --manifest manifest_selA2.csv --preds preds/A_s1_adsel200/preds --split test --ap-conf 0.01 --out eval_full2/A_s1_adsel200
+
+# ---- 3회차 ----
+manifest_selA3.csv | python -m mfl_thesis.select_review --manifest manifest_selA2.csv --preds preds/A_s1_adsel400/preds --split test --n 200 --score combo --out manifest_selA3.csv --list analysis/sel_A3.txt
+tiles/A_adsel600/tiles.json | python -m mfl_thesis.make_tiles --manifest manifest_selA3.csv --cond A --split adapt_sel --mode train --out tiles/A_adsel600
+runs/A_s1_adsel600/DONE | python -m mfl_thesis.train_condition --train tiles/A_adsel600 --val tiles/A_val --name A_s1_adsel600 --model runs/A_s1/weights/best.pt --epochs 5 --lr0 0.0005 --freeze 10 --batch 16 --seed 1
+preds/A_s1_adsel600/DONE | python -m mfl_thesis.infer_images --manifest manifest_selA3.csv --cond A --split test --models runs/A_s1_adsel600/weights/last.pt --outs preds/A_s1_adsel600
+eval_sel3/A_s1/metrics.json          | python -m mfl_thesis.evaluate --manifest manifest_selA3.csv --preds preds/A_s1/preds          --split test --out eval_sel3/A_s1
+eval_sel3/A_s1_ad200/metrics.json    | python -m mfl_thesis.evaluate --manifest manifest_selA3.csv --preds preds/A_s1_ad200/preds    --split test --out eval_sel3/A_s1_ad200
+eval_sel3/A_s1_adsel200/metrics.json | python -m mfl_thesis.evaluate --manifest manifest_selA3.csv --preds preds/A_s1_adsel200/preds --split test --out eval_sel3/A_s1_adsel200
+eval_sel3/A_s1_adsel400/metrics.json | python -m mfl_thesis.evaluate --manifest manifest_selA3.csv --preds preds/A_s1_adsel400/preds --split test --out eval_sel3/A_s1_adsel400
+eval_sel3/A_s1_adsel600/metrics.json | python -m mfl_thesis.evaluate --manifest manifest_selA3.csv --preds preds/A_s1_adsel600/preds --split test --out eval_sel3/A_s1_adsel600
+eval_full3/A_s1_adsel600/metrics.json | python -m mfl_thesis.evaluate --manifest manifest_selA3.csv --preds preds/A_s1_adsel600/preds --split test --ap-conf 0.01 --out eval_full3/A_s1_adsel600
+eval_full3/A_s1/metrics.json          | python -m mfl_thesis.evaluate --manifest manifest_selA3.csv --preds preds/A_s1/preds          --split test --ap-conf 0.01 --out eval_full3/A_s1
+
+# ---- 시연 프로그램 점검 (A 모델, 배관 A 영상 3장; 결과는 demo_out/ 에 저장) ----
+demo_out/DONE | python -m mfl_thesis.demo_check --manifest manifest.csv --model runs/A_s1/weights/best.pt --pipes A,B,J --n 2 --out demo_out

@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>미관측 가스배관 MFL 사람–AI 협업 검사 데모</title>
+<style>
+  :root { --navy:#1b2a41; --blue:#1f5fa8; --orange:#e8711a; --green:#1baf7a; --pink:#e87ba4; --gold:#eda100; --gray:#8a94a6; --bg:#f4f6fa; --card:#ffffff; --ink:#1b2a41; --ink2:#4a5568; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; background: var(--bg); color: var(--ink); }
+  header { background: var(--navy); color:#fff; padding: 18px 28px; }
+  header h1 { margin:0; font-size: 22px; font-weight: 700; }
+  header p { margin: 6px 0 0; color:#c7d2e3; font-size: 14px; }
+  nav { display:flex; gap:8px; padding: 12px 28px 0; background: var(--navy); }
+  nav button { background:#2c4262; color:#dbe4f0; border:none; padding:10px 16px; border-radius: 8px 8px 0 0; font-size: 15px; cursor:pointer; }
+  nav button.active { background: var(--bg); color: var(--ink); font-weight: 700; }
+  main { padding: 20px 28px 40px; max-width: 1400px; margin: 0 auto; }
+  section.tab { display:none; } section.tab.active { display:block; }
+  .row { display:flex; gap:16px; flex-wrap: wrap; }
+  .card { background: var(--card); border-radius: 12px; padding: 16px 18px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .controls { display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
+  .controls label { font-size: 14px; color: var(--ink2); }
+  select, input[type=range] { font-size: 14px; }
+  input[type=range] { width: 320px; }
+  .kpis { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 12px; }
+  .kpi { background: #eef2f7; border-radius: 10px; padding: 12px 14px; }
+  .kpi .v { font-size: 30px; font-weight: 800; color: var(--blue); line-height: 1.1; }
+  .kpi .v.orange { color: var(--orange); } .kpi .v.green { color: var(--green); }
+  .kpi .l { font-size: 12.5px; color: var(--ink2); margin-top: 4px; }
+  canvas { background:#fff; border-radius: 8px; max-width: 100%; }
+  h2 { font-size: 18px; margin: 0 0 10px; }
+  h3 { font-size: 15px; margin: 14px 0 6px; color: var(--ink2); }
+  .note { font-size: 13px; color: var(--ink2); line-height: 1.5; }
+  table { border-collapse: collapse; font-size: 13.5px; width: 100%; }
+  th, td { border: 1px solid #d9dfe8; padding: 6px 8px; text-align: center; }
+  th { background: #e5ebf3; }
+  .steps { display:grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .step { background: var(--navy); color:#fff; border-radius: 12px; padding: 16px; }
+  .step h4 { margin:0 0 8px; color:#ffd08a; font-size: 17px; }
+  .step p { margin:0; font-size: 14px; line-height: 1.55; color:#e6edf7; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size: 13px; margin-top: 6px; }
+  .legend span::before { content:""; display:inline-block; width: 22px; height: 4px; margin-right: 6px; vertical-align: middle; background: var(--c); }
+  .pill { display:inline-block; padding: 2px 8px; border-radius: 999px; background:#eef2f7; font-size: 12px; margin-left: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>미관측 가스배관 MFL 결함탐지를 위한 사람–AI 협업 검사 절차 — 데모</h1>
+  <p>관경 보정의 검증과 판단보류–적응 루프 · PipeMFL-240K 시험 5개 배관 13,740장 (학습에 없던 457·508 mm 관경 + 새 813 mm 배관) · 모든 수치는 실험 산출물에서 계산 · 박지훈 (중앙대 발전기계학과)</p>
+</header>
+<nav>
+  <button class="active" data-tab="t1">① 검토 예산 슬라이더</button>
+  <button data-tab="t2">② 같은 정밀도 비교</button>
+  <button data-tab="t3">③ 검토–적응 루프</button>
+  <button data-tab="t4">④ 운영 절차 요약</button>
+</nav>
+<main>
+<section id="t1" class="tab active">
+  <div class="card">
+    <h2>검사원이 볼 영상의 비율을 정하면, 자동 처리 영역에 남는 미탐이 얼마나 되는가</h2>
+    <div class="controls">
+      <label>탐지 모델 <select id="d-run"></select></label>
+      <label>검토 우선순위 점수 <select id="d-score">
+        <option value="combo">combo (배관 안 순위 합)</option>
+        <option value="n_pred">n_pred (검출 수)</option>
+        <option value="sub_thr_max">sub_thr_max (약한 검출)</option></select></label>
+      <label>검토 비율 <input type="range" id="d-k" min="0" max="50" value="20" step="1"> <b id="d-kv">20%</b></label>
+      <label>검사원이 찾아내는 비율 r <input type="range" id="d-r" min="50" max="100" value="100" step="5" style="width:160px"> <b id="d-rv">100%</b></label>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="v" id="k-img">—</div><div class="l">검토 대상 영상 수 (전체 13,740장)</div></div>
+      <div class="kpi"><div class="v orange" id="k-res">—</div><div class="l">잔여 미탐률 (보류 전 <span id="k-base">—</span>) · <span id="k-red">—</span></div></div>
+      <div class="kpi"><div class="v" id="k-rand">—</div><div class="l">같은 수를 무작위로 보류했을 때의 잔여 미탐률</div></div>
+      <div class="kpi"><div class="v green" id="k-cap">—</div><div class="l">보류 전 미탐 가운데 검토 대상에 포착된 비율</div></div>
+      <div class="kpi"><div class="v" id="k-box">—</div><div class="l">검토 대상 영상의 검출 박스 수 (전체 대비 <span id="k-boxp">—</span>)</div></div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <div style="flex: 2 1 560px"><canvas id="c-rc" width="760" height="380"></canvas>
+        <div class="legend"><span style="--c:#1baf7a">sub_thr_max</span><span style="--c:#eb6834">n_pred</span><span style="--c:#e87ba4">combo</span><span style="--c:#8a94a6">무작위 보류 기대값 (점선)</span></div></div>
+      <div style="flex: 1 1 300px"><canvas id="c-pipe" width="380" height="380"></canvas><div class="note">배관별 검토 비율 (선택 점수·검토 비율 기준). combo는 배관 안 순위를 쓰므로 모든 배관에 고르게 배분된다.</div></div>
+    </div>
+    <p class="note">잔여 미탐률 = 검토하지 않은(자동 처리) 영상에 남는 손상 4종 미탐 / 전체 손상 박스. 점수는 라벨·추가 학습 없이 탐지기 출력만으로 계산한다. 검사원이 보류 영상의 미탐을 모두 찾아낸다는 가정(r = 100%)은 상한이며, r 슬라이더로 민감도를 볼 수 있다.</p>
+  </div>
+</section>
+
+<section id="t2" class="tab">
+  <div class="card">
+    <h2>같은 정밀도(오탐 부담)에서 어느 입력 처리가 더 많이 찾는가</h2>
+    <div class="controls">
+      <label>평가 범위 <select id="p-scope"><option value="overall">시험 5개 배관 전체</option><option value="G457">457 mm 배관 A·B·C (관경 외삽)</option><option value="D">508 mm 배관 D (관경 외삽)</option><option value="J">813 mm 배관 J (배관만 미관측)</option></select></label>
+      <label>목표 정밀도 <input type="range" id="p-prec" min="0.15" max="0.50" value="0.30" step="0.01"> <b id="p-pv">0.30</b></label>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div style="flex: 2 1 560px"><canvas id="c-pr" width="760" height="400"></canvas>
+        <div class="legend"><span style="--c:#2a78d6">A 공식 프로토콜</span><span style="--c:#eb6834">B 동일 배율</span><span style="--c:#1baf7a">C 관경 보정</span><span style="--c:#eda100">C⁻ 축소 금지 추론</span><span style="--c:#e87ba4">C′ 축소 없는 보정</span><span style="--c:#999">실선 시드 1 · 점선 시드 0</span></div></div>
+      <div style="flex: 1 1 320px"><h3>목표 정밀도에서의 MTL 재현율 (선형 보간)</h3><table id="p-table"></table>
+        <p class="note">운영 임계값 0.25에서는 타일 조건의 재현율이 A보다 10~15%p 높아 보이지만, 정밀도를 맞추면 공식 프로토콜(A)이 모든 배관 그룹에서 가장 높다. 세밀한 입력은 '더 찾되 더 틀리는' 작동점을 만들 뿐이다.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="t3" class="tab">
+  <div class="card">
+    <h2>검토한 영상의 라벨로 모델을 적응시키면 (배관당 200장, 5 에포크)</h2>
+    <div class="controls"><label>탐지 모델 <select id="l-model"></select></label>
+      <span class="note">검토 대상 200장/배관(combo 점수 상위, 라벨 미사용 선택)에는 손상 박스 <b>4,252–4,408개</b>(모델별 선택) — 무작위 200장의 <b>1,412개</b>의 3.0–3.1배. 공통 평가 집합 12,740장.</span></div>
+    <div class="row" style="margin-top:12px">
+      <div style="flex: 2 1 560px"><canvas id="c-loop" width="760" height="360"></canvas>
+        <div class="legend"><span style="--c:#8a94a6">기준 (적응 없음)</span><span style="--c:#eb6834">무작위 200장</span><span style="--c:#e87ba4">검토 대상 200장</span></div></div>
+      <div style="flex: 1 1 320px"><table id="l-table"></table>
+        <p class="note">세 모델 모두에서 일관된 효과는 AP의 개선(검토 대상 &gt; 무작위 &gt; 기준)이다. 운영 임계값의 재현율은 무작위 적응보다 A·B에서 높고 C에서 낮았으므로, 적응 후 임계값을 검증 자료로 다시 고르고 적응 집합에 무작위 영상을 섞는 것이 안전하다. A 모델은 두 적응 모두 정밀도 0.37→0.50 쪽으로 작동점이 옮겨졌다.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="t4" class="tab">
+  <div class="card">
+    <h2>현장에서 돌아가는 세 단계</h2>
+    <div class="steps">
+      <div class="step"><h4>① 입력 규칙</h4><p>공식 프로토콜의 탐지기를 그대로 쓰고, 임계값은 검증 배관에서 목표 정밀도에 맞추어 고른다. 관경 보정·타일링은 같은 정밀도에서 이득이 없었다(5.3.2절).</p></div>
+      <div class="step"><h4>② 검토 예산 판단보류</h4><p>검출 수(n_pred) 또는 배관 안 순위 합(combo)으로 영상을 정렬하여 예산만큼 검사원이 본다. 영상의 20%를 보면 잔여 미탐이 40~48% 줄고 무작위보다 12~19%p 낮다(A 모델 0.715→0.387; 5.5절).</p></div>
+      <div class="step"><h4>③ 검토–적응 루프</h4><p>검토한 영상의 라벨(무작위의 3배)로 5 에포크 적응하면 정밀도·AP가 오르고 오탐이 준다(C 모델 −36%). 검토가 곧 다음 학습 자료가 된다(5.6절).</p></div>
+    </div>
+    <h3>핵심 수치</h3>
+    <table>
+      <tr><th>항목</th><th>값</th><th>출처</th></tr>
+      <tr><td>관경 편향 (조건 A, MTL 재현율)</td><td>457 mm 0.26 vs 813 mm 0.43 (−17%p)</td><td>표 5-2</td></tr>
+      <tr><td>같은 정밀도 0.30에서의 재현율</td><td>A 0.43–0.45 &gt; C 0.35–0.39 · C′ 0.38 · C⁻ 0.33–0.39 · B 0.28–0.34</td><td>표 5-5</td></tr>
+      <tr><td>20% 검토 시 잔여 미탐</td><td>A 모델 0.715 → 0.387 (combo, 무작위 0.573) · C 모델 0.721 → 0.391 (무작위 0.577)</td><td>표 5-10</td></tr>
+      <tr><td>검토 대상 적응 (AP50, 운영 임계값)</td><td>A 0.189 → 0.210 (무작위) → 0.244 (검토 대상) · B 0.157 → 0.241 → 0.297 · C 0.164 → 0.263 → 0.292</td><td>표 5-11</td></tr>
+    </table>
+    <p class="note">이 데모의 모든 수치는 실험 산출물(defer/, analysis/sweep_test.csv, eval_sel/)에서 build_demo.py로 계산하여 HTML에 포함한 것이며, 인터넷 연결이나 설치 없이 열린다.</p>
+  </div>
+</section>
+</main>
+<script>
+/*__DATA__*/
+const COL = { "A": "#2a78d6", "B": "#eb6834", "C": "#1baf7a", "C_clamp": "#eda100", "Cp": "#e87ba4" };
+const SCOL = { sub_thr_max: "#1baf7a", n_pred: "#eb6834", combo: "#e87ba4" };
+const fmt = (x, d = 3) => (x == null || isNaN(x)) ? "–" : Number(x).toFixed(d);
+const $ = (id) => document.getElementById(id);
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.remove("active")); b.classList.add("active");
+  document.querySelectorAll("section.tab").forEach(s => s.classList.remove("active")); $(b.dataset.tab).classList.add("active");
+});
+// ---------- 공통 축 그리기 ----------
+function axes(ctx, W, H, pad, xl, yl, xmax, ymax, xticks, yticks, xfmt, yfmt) {
+  ctx.clearRect(0, 0, W, H); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = "#cfd6e0"; ctx.lineWidth = 1; ctx.font = "12px sans-serif"; ctx.fillStyle = "#4a5568";
+  const X = (v) => pad.l + v / xmax * (W - pad.l - pad.r), Y = (v) => H - pad.b - v / ymax * (H - pad.t - pad.b);
+  for (const t of yticks) { ctx.beginPath(); ctx.moveTo(pad.l, Y(t)); ctx.lineTo(W - pad.r, Y(t)); ctx.stroke(); ctx.textAlign = "right"; ctx.fillText(yfmt(t), pad.l - 6, Y(t) + 4); }
+  for (const t of xticks) { ctx.textAlign = "center"; ctx.fillText(xfmt(t), X(t), H - pad.b + 16); }
+  ctx.strokeStyle = "#8a94a6"; ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H - pad.b); ctx.lineTo(W - pad.r, H - pad.b); ctx.stroke();
+  ctx.fillStyle = "#1b2a41"; ctx.font = "13px sans-serif"; ctx.textAlign = "center"; ctx.fillText(xl, (pad.l + W - pad.r) / 2, H - 6);
+  ctx.save(); ctx.translate(14, (pad.t + H - pad.b) / 2); ctx.rotate(-Math.PI / 2); ctx.fillText(yl, 0, 0); ctx.restore();
+  return { X, Y };
+}
+function line(ctx, pts, color, width = 2, dash = []) { ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash); ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.stroke(); ctx.setLineDash([]); }
+
+// ---------- ① 검토 예산 ----------
+const runSel = $("d-run");
+Object.entries(DATA.defer).forEach(([k, v]) => { const o = document.createElement("option"); o.value = k; o.textContent = v.label; runSel.appendChild(o); });
+if (DATA.defer["DA_sub"]) runSel.value = "DA_sub"; else if (DATA.defer["E_sub"]) runSel.value = "E_sub";
+function drawDefer() {
+  const run = DATA.defer[runSel.value]; if (!run) return;
+  const sc = $("d-score").value, k = +$("d-k").value, r = +$("d-r").value / 100;
+  $("d-kv").textContent = k + "%"; $("d-rv").textContent = Math.round(r * 100) + "%";
+  const s = run.scores[sc]; const nimg = Math.round(run.n * k / 100);
+  const resid = s.resid[k] + (1 - r) * (run.base - s.resid[k]);
+  const rand = run.base * (1 - k / 100 * r);
+  $("k-img").textContent = nimg.toLocaleString() + "장"; $("k-res").textContent = fmt(resid); $("k-base").textContent = fmt(run.base);
+  $("k-red").textContent = "−" + Math.round((1 - resid / run.base) * 100) + "%"; $("k-rand").textContent = fmt(rand);
+  $("k-cap").textContent = Math.round(s.cap[k] * 100) + "%"; $("k-box").textContent = s.boxes[k].toLocaleString() + "개"; $("k-boxp").textContent = Math.round(s.boxes[k] / run.total_box * 100) + "%";
+  // Risk–Coverage
+  const cv = $("c-rc"), ctx = cv.getContext("2d"), W = cv.width, H = cv.height, pad = { l: 56, r: 16, t: 16, b: 40 };
+  const { X, Y } = axes(ctx, W, H, pad, "검토 영상 비율 (%)", "잔여 미탐률 (손상 4종)", 50, 0.8, [0, 10, 20, 30, 40, 50], [0, 0.2, 0.4, 0.6, 0.8], (t) => t, (t) => t.toFixed(1));
+  line(ctx, [[X(0), Y(run.base)], [X(50), Y(run.base * 0.5)]], "#8a94a6", 1.2, [4, 4]);
+  for (const name of ["sub_thr_max", "n_pred", "combo"]) {
+    const d = run.scores[name]; const pts = d.resid.map((v, i) => [X(i), Y(v + (1 - r) * (run.base - v))]);
+    line(ctx, pts, SCOL[name], name === sc ? 3 : 1.5);
+  }
+  ctx.strokeStyle = "#1b2a41"; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(k), Y(0)); ctx.lineTo(X(k), Y(0.8)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = SCOL[sc]; ctx.beginPath(); ctx.arc(X(k), Y(resid), 6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#1b2a41"; ctx.font = "bold 13px sans-serif"; ctx.textAlign = "left"; ctx.fillText(fmt(resid), X(k) + 9, Y(resid) - 8);
+  // 배관별 검토 비율
+  const cp = $("c-pipe"), c2 = cp.getContext("2d"), W2 = cp.width, H2 = cp.height, p2 = { l: 58, r: 12, t: 16, b: 40 };
+  const pipes = ["A", "B", "C", "D", "J"]; const ax = axes(c2, W2, H2, p2, "배관 (457·457·457·508·813 mm)", "검토 비율", 5, 1.0, [], [0, 0.25, 0.5, 0.75, 1.0], (t) => t, (t) => Math.round(t * 100) + "%");
+  pipes.forEach((p, i) => { const v = s.per_pipe[p][k]; const x0 = ax.X(i + 0.2), x1 = ax.X(i + 0.8); c2.fillStyle = SCOL[sc]; c2.fillRect(x0, ax.Y(v), x1 - x0, ax.Y(0) - ax.Y(v)); c2.fillStyle = "#1b2a41"; c2.font = "12px sans-serif"; c2.textAlign = "center"; c2.fillText(p, (x0 + x1) / 2, H2 - p2.b + 16); c2.fillText(Math.round(v * 100) + "%", (x0 + x1) / 2, ax.Y(v) - 4); });
+}
+["d-run", "d-score", "d-k", "d-r"].forEach(id => $(id).addEventListener("input", drawDefer)); drawDefer();
+
+// ---------- ② 같은 정밀도 ----------
+const condOf = (n) => n.endsWith("_clamp") ? "C_clamp" : n.split("_")[0];
+const seedOf = (n) => +n.split("_s")[1][0];
+const LBL = { A: "A 공식 프로토콜", B: "B 동일 배율", C: "C 관경 보정", C_clamp: "C⁻ 축소 금지", Cp: "C′ 축소 없는 보정" };
+function interp(d, p) { for (let i = 0; i < d.p.length - 1; i++) { const a = d.p[i], b = d.p[i + 1]; if ((a - p) * (b - p) <= 0 && a !== b) return d.r[i] + (p - a) / (b - a) * (d.r[i + 1] - d.r[i]); } return null; }
+function drawPR() {
+  const scope = $("p-scope").value, p = +$("p-prec").value; $("p-pv").textContent = p.toFixed(2);
+  const cv = $("c-pr"), ctx = cv.getContext("2d"), W = cv.width, H = cv.height, pad = { l: 56, r: 16, t: 16, b: 40 };
+  const { X, Y } = axes(ctx, W, H, pad, "MTL 정밀도", "MTL 재현율", 0.6, 0.8, [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6], [0, 0.2, 0.4, 0.6, 0.8], (t) => t.toFixed(1), (t) => t.toFixed(1));
+  const rows = {};
+  for (const [name, sc] of Object.entries(DATA.pr)) { const d = sc[scope]; if (!d) continue; const c = condOf(name), s = seedOf(name);
+    line(ctx, d.p.map((v, i) => [X(v), Y(d.r[i])]), COL[c], 2, s === 0 ? [6, 4] : []); rows[c] = rows[c] || {}; rows[c][s] = interp(d, p); }
+  line(ctx, [[X(p), Y(0)], [X(p), Y(0.8)]], "#1b2a41", 1, [3, 3]);
+  const order = ["A", "B", "C", "C_clamp", "Cp"]; let html = "<tr><th>조건</th><th>시드 0</th><th>시드 1</th></tr>";
+  let best = -1; for (const c of order) for (const s of [0, 1]) if (rows[c] && rows[c][s] != null) best = Math.max(best, rows[c][s]);
+  for (const c of order) { if (!rows[c]) continue; html += `<tr><td style="color:${COL[c]};font-weight:700">${LBL[c]}</td>` + [0, 1].map(s => { const v = rows[c][s]; const b = v != null && Math.abs(v - best) < 1e-9; return `<td${b ? ' style="font-weight:800;background:#fff3e3"' : ""}>${v == null ? "– (도달 못함)" : v.toFixed(3)}</td>`; }).join("") + "</tr>"; }
+  $("p-table").innerHTML = html;
+}
+["p-scope", "p-prec"].forEach(id => $(id).addEventListener("input", drawPR)); drawPR();
+
+// ---------- ③ 루프 ----------
+const lm = $("l-model"); Object.keys(DATA.loop).forEach(m => { const o = document.createElement("option"); o.value = m; o.textContent = m + " 모델"; lm.appendChild(o); });
+function drawLoop() {
+  const m = DATA.loop[lm.value]; if (!m) return;
+  const cv = $("c-loop"), ctx = cv.getContext("2d"), W = cv.width, H = cv.height, pad = { l: 46, r: 16, t: 16, b: 40 };
+  const { X, Y } = axes(ctx, W, H, pad, "", "", 3, 0.6, [], [0, 0.2, 0.4, 0.6], (t) => t, (t) => t.toFixed(1));
+  const metrics = [["recall", "MTL 재현율"], ["precision", "MTL 정밀도"], ["ap50", "MTL AP50 (≥0.25)"]]; const sets = [["base", "#8a94a6"], ["random", "#eb6834"], ["selected", "#e87ba4"]];
+  metrics.forEach(([key, lab], gi) => { sets.forEach(([s, col], si) => { if (!m[s]) return; const v = m[s][key]; const x0 = X(gi + 0.15 + si * 0.24), x1 = X(gi + 0.15 + si * 0.24 + 0.2); ctx.fillStyle = col; ctx.fillRect(x0, Y(v), x1 - x0, Y(0) - Y(v)); ctx.fillStyle = "#1b2a41"; ctx.font = "12px sans-serif"; ctx.textAlign = "center"; ctx.fillText(v.toFixed(2), (x0 + x1) / 2, Y(v) - 4); });
+    ctx.fillStyle = "#1b2a41"; ctx.font = "13px sans-serif"; ctx.textAlign = "center"; ctx.fillText(lab, X(gi + 0.5), H - pad.b + 18); });
+  const rows = [["적응 집합", "재현율", "457 / 508 / 813", "정밀도", "오탐", "AP50", "SWA 재현율"]];
+  for (const [s, lab] of [["base", "없음"], ["random", "무작위 200장"], ["selected", "검토 대상 200장"]]) { const d = m[s]; if (!d) continue; rows.push([lab, fmt(d.recall), `${fmt(d.r457, 2)} / ${fmt(d.rD, 2)} / ${fmt(d.rJ, 2)}`, fmt(d.precision), d.fp.toLocaleString(), fmt(d.ap50), fmt(d.swa)]); }
+  $("l-table").innerHTML = rows.map((r, i) => "<tr>" + r.map(c => i ? `<td>${c}</td>` : `<th>${c}</th>`).join("") + "</tr>").join("");
+}
+lm.addEventListener("input", drawLoop); drawLoop();
+</script>
+</body>
+</html>

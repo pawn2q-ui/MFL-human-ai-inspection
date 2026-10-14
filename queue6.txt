@@ -1,0 +1,45 @@
+# MFL 졸업논문 6차 실행 큐 (10/12 준비): 공식 프로토콜 A 를 운영 탐지기로 두는 결론에 맞춘 보강. 약 1.5시간 (GPU 약 45분 + CPU)
+#   ① A 모델 판단보류 (점수 sub / n_pred / combo / ensemble / random) + 다른 조건의 n_pred·combo 점수
+#   ② A 모델 루프 실험 H6 (검토 대상 200장 적응 vs 무작위 200장 적응, 공통 평가 집합)
+#   ③ 오탐 근접 분석 (타일링 조건의 정밀도 손실 원인) ④ 실패 사례 그림
+# 실행: python -m mfl_thesis.run_queue queue6.txt   (중단되면 같은 명령으로 재개)
+
+# ---- 1) 판단보류: A 모델 ----
+defer/DA_sub/deferral.json   | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/A_s0/preds --preds2 preds/A_s1/preds --split test --score sub_thr_max --lambda 1 --out defer/DA_sub
+defer/DA_npred/deferral.json | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/A_s0/preds --preds2 preds/A_s1/preds --split test --score n_pred --lambda 1 --out defer/DA_npred
+defer/DA_combo/deferral.json | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/A_s0/preds --preds2 preds/A_s1/preds --split test --score combo --lambda 1 --out defer/DA_combo
+defer/DA_ens/deferral.json   | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/A_s0/preds --preds2 preds/A_s1/preds --split test --score ensemble --lambda 1 --out defer/DA_ens
+defer/DA_rand/deferral.json  | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/A_s0/preds --split test --score random --out defer/DA_rand
+defer/DA_sub_val/deferral.json   | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/A_s0/preds --preds2 preds/A_s1/preds --split val --score sub_thr_max --lambda 1 --out defer/DA_sub_val
+defer/DA_combo_val/deferral.json | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/A_s0/preds --preds2 preds/A_s1/preds --split val --score combo --lambda 1 --out defer/DA_combo_val
+# ---- 1b) 다른 조건에도 n_pred·combo 점수 (표 5-10 보강) ----
+defer/D_npred/deferral.json  | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/B_s0/preds --preds2 preds/B_s1/preds --split test --score n_pred --lambda 1 --out defer/D_npred
+defer/D_combo/deferral.json  | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/B_s0/preds --preds2 preds/B_s1/preds --split test --score combo --lambda 1 --out defer/D_combo
+defer/E_npred/deferral.json  | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/C_s0/preds --preds2 preds/C_s1/preds --split test --score n_pred --lambda 1 --out defer/E_npred
+defer/E_combo/deferral.json  | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/C_s0/preds --preds2 preds/C_s1/preds --split test --score combo --lambda 1 --out defer/E_combo
+defer/Ec_npred/deferral.json | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/C_s0_clamp/preds --preds2 preds/C_s1_clamp/preds --split test --score n_pred --lambda 1 --out defer/Ec_npred
+defer/Ec_combo/deferral.json | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/C_s0_clamp/preds --preds2 preds/C_s1_clamp/preds --split test --score combo --lambda 1 --out defer/Ec_combo
+defer/Ep_npred/deferral.json | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/Cp_s0/preds --preds2 preds/Cp_s1/preds --split test --score n_pred --lambda 1 --out defer/Ep_npred
+defer/Ep_combo/deferral.json | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/Cp_s0/preds --preds2 preds/Cp_s1/preds --split test --score combo --lambda 1 --out defer/Ep_combo
+defer/E_combo_val/deferral.json | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/C_s0/preds --preds2 preds/C_s1/preds --split val --score combo --lambda 1 --out defer/E_combo_val
+
+# ---- 2) 루프 실험 H6: A 모델 (선택 200장/배관 vs 무작위 200장/배관, 공통 평가 집합) ----
+manifest_selA.csv | python -m mfl_thesis.select_review --manifest manifest.csv --preds preds/A_s1/preds --split test --n 200 --score combo --out manifest_selA.csv --list analysis/sel_A.txt
+tiles/A_adapt200/tiles.json | python -m mfl_thesis.make_tiles --manifest manifest.csv     --cond A --split adapt     --mode train --out tiles/A_adapt200
+tiles/A_adsel200/tiles.json | python -m mfl_thesis.make_tiles --manifest manifest_selA.csv --cond A --split adapt_sel --mode train --out tiles/A_adsel200
+runs/A_s1_ad200/DONE    | python -m mfl_thesis.train_condition --train tiles/A_adapt200 --val tiles/A_val --name A_s1_ad200    --model runs/A_s1/weights/best.pt --epochs 5 --lr0 0.0005 --freeze 10 --batch 16 --seed 1
+runs/A_s1_adsel200/DONE | python -m mfl_thesis.train_condition --train tiles/A_adsel200 --val tiles/A_val --name A_s1_adsel200 --model runs/A_s1/weights/best.pt --epochs 5 --lr0 0.0005 --freeze 10 --batch 16 --seed 1
+preds/A_s1_ad200/DONE | python -m mfl_thesis.infer_images --manifest manifest_selA.csv --cond A --split test --models runs/A_s1_ad200/weights/last.pt,runs/A_s1_adsel200/weights/last.pt --outs preds/A_s1_ad200,preds/A_s1_adsel200
+eval_sel/A_s1/metrics.json          | python -m mfl_thesis.evaluate --manifest manifest_selA.csv --preds preds/A_s1/preds          --split test --out eval_sel/A_s1
+eval_sel/A_s1_ad200/metrics.json    | python -m mfl_thesis.evaluate --manifest manifest_selA.csv --preds preds/A_s1_ad200/preds    --split test --out eval_sel/A_s1_ad200
+eval_sel/A_s1_adsel200/metrics.json | python -m mfl_thesis.evaluate --manifest manifest_selA.csv --preds preds/A_s1_adsel200/preds --split test --out eval_sel/A_s1_adsel200
+eval_full/A_s1_ad200/metrics.json    | python -m mfl_thesis.evaluate --manifest manifest_selA.csv --preds preds/A_s1_ad200/preds    --split test --ap-conf 0.01 --out eval_full/A_s1_ad200
+eval_full/A_s1_adsel200/metrics.json | python -m mfl_thesis.evaluate --manifest manifest_selA.csv --preds preds/A_s1_adsel200/preds --split test --ap-conf 0.01 --out eval_full/A_s1_adsel200
+eval_full/A_s1_sel/metrics.json      | python -m mfl_thesis.evaluate --manifest manifest_selA.csv --preds preds/A_s1/preds          --split test --ap-conf 0.01 --out eval_full/A_s1_sel
+
+# ---- 3) 오탐 근접 분석 (CPU) ----
+analysis/fp_analysis.csv | python -m mfl_thesis.fp_analysis --manifest manifest.csv --split test --preds preds/A_s1/preds,preds/B_s1/preds,preds/C_s1/preds,preds/C_s1_clamp/preds,preds/Cp_s1/preds,preds/A_s0/preds,preds/B_s0/preds --names A_s1,B_s1,C_s1,C_s1_clamp,Cp_s1,A_s0,B_s0 --out analysis/fp_analysis.csv
+
+# ---- 4) 실패 사례 그림 (457 mm 배관, A·B 모델) ----
+analysis/cases_A_s1/DONE | python -m mfl_thesis.viz_cases --manifest manifest.csv --split test --preds preds/A_s1/preds --pipes A,B,C --n-miss 3 --n-fp 3 --out analysis/cases_A_s1
+analysis/cases_B_s1/DONE | python -m mfl_thesis.viz_cases --manifest manifest.csv --split test --preds preds/B_s1/preds --pipes A,B,C --n-miss 3 --n-fp 3 --out analysis/cases_B_s1

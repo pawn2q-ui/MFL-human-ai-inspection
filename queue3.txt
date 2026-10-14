@@ -1,0 +1,43 @@
+# MFL 졸업논문 3차 실행 큐 (10/8): ① 전체 신뢰도 PR 재평가 ② 추론 배율 실험(457 그룹, C 모델) ③ 소수 표본 적응(4.5절)
+# 실행: python -m mfl_thesis.run_queue queue3.txt   (중단되면 같은 명령으로 재개)
+
+# ---- 1) 전체 신뢰도 구간(conf>=0.01)으로 AP·PR 곡선 재계산 (CPU, 조건 간 공정 비교용) ----
+eval_full/A_s0/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/A_s0/preds --split test --ap-conf 0.01 --out eval_full/A_s0
+eval_full/A_s1/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/A_s1/preds --split test --ap-conf 0.01 --out eval_full/A_s1
+eval_full/B_s0/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/B_s0/preds --split test --ap-conf 0.01 --out eval_full/B_s0
+eval_full/B_s1/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/B_s1/preds --split test --ap-conf 0.01 --out eval_full/B_s1
+eval_full/C_s0/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s0/preds --split test --ap-conf 0.01 --out eval_full/C_s0
+eval_full/C_s1/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s1/preds --split test --ap-conf 0.01 --out eval_full/C_s1
+
+# ---- 2) 추론 배율 실험: C 모델(시드 0·1)에 457 mm 배관(A,B,C) 영상을 세로 배율을 바꿔 입력 (가로 1.252 고정) ----
+#      C 자체 배율 0.749 는 preds/C_s0, C_s1 에 이미 있음. 1.0 = 축소 없음, 1.165 = 조건 B 배율, 1.333 = 학습 813 mm 배관 배율, 1.6 = 추가 확대
+preds/C_s0_ry100/DONE | python -m mfl_thesis.infer_images --manifest manifest.csv --cond C --split test --pipes A,B,C --scale 1.252,1.0   --models runs/C_s0/weights/best.pt,runs/C_s1/weights/best.pt --outs preds/C_s0_ry100,preds/C_s1_ry100
+preds/C_s0_ry117/DONE | python -m mfl_thesis.infer_images --manifest manifest.csv --cond C --split test --pipes A,B,C --scale 1.252,1.165 --models runs/C_s0/weights/best.pt,runs/C_s1/weights/best.pt --outs preds/C_s0_ry117,preds/C_s1_ry117
+preds/C_s0_ry133/DONE | python -m mfl_thesis.infer_images --manifest manifest.csv --cond C --split test --pipes A,B,C --scale 1.252,1.333 --models runs/C_s0/weights/best.pt,runs/C_s1/weights/best.pt --outs preds/C_s0_ry133,preds/C_s1_ry133
+preds/C_s0_ry160/DONE | python -m mfl_thesis.infer_images --manifest manifest.csv --cond C --split test --pipes A,B,C --scale 1.252,1.6   --models runs/C_s0/weights/best.pt,runs/C_s1/weights/best.pt --outs preds/C_s0_ry160,preds/C_s1_ry160
+eval/C_s0_ry100/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s0_ry100/preds --split test --pipes A,B,C --out eval/C_s0_ry100
+eval/C_s1_ry100/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s1_ry100/preds --split test --pipes A,B,C --out eval/C_s1_ry100
+eval/C_s0_ry117/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s0_ry117/preds --split test --pipes A,B,C --out eval/C_s0_ry117
+eval/C_s1_ry117/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s1_ry117/preds --split test --pipes A,B,C --out eval/C_s1_ry117
+eval/C_s0_ry133/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s0_ry133/preds --split test --pipes A,B,C --out eval/C_s0_ry133
+eval/C_s1_ry133/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s1_ry133/preds --split test --pipes A,B,C --out eval/C_s1_ry133
+eval/C_s0_ry160/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s0_ry160/preds --split test --pipes A,B,C --out eval/C_s0_ry160
+eval/C_s1_ry160/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s1_ry160/preds --split test --pipes A,B,C --out eval/C_s1_ry160
+
+# ---- 3) 소수 표본 적응 (4.5절): 시험 배관 5개의 적응용 영상 200장/50장으로 B·C(시드 1) 모델을 5 에포크 미세조정 ----
+manifest_a50.csv | python -m mfl_thesis.manifest --images data\test_data\test\images --labels data\test_data\test\labels --pipes pipes.csv --pattern "Test_([A-K])_" --test-pipes A,B,C,D,J --val-pipe F --adapt-n 50 --out manifest_a50.csv
+tiles/C_adapt200/tiles.json | python -m mfl_thesis.make_tiles --manifest manifest.csv     --cond C --split adapt --mode train --T 1280 --out tiles/C_adapt200
+tiles/C_adapt50/tiles.json  | python -m mfl_thesis.make_tiles --manifest manifest_a50.csv --cond C --split adapt --mode train --T 1280 --out tiles/C_adapt50
+tiles/B_adapt200/tiles.json | python -m mfl_thesis.make_tiles --manifest manifest.csv     --cond B --split adapt --mode train --T 1280 --out tiles/B_adapt200
+tiles/B_adapt50/tiles.json  | python -m mfl_thesis.make_tiles --manifest manifest_a50.csv --cond B --split adapt --mode train --T 1280 --out tiles/B_adapt50
+runs/C_s1_ad200/DONE | python -m mfl_thesis.train_condition --train tiles/C_adapt200 --val tiles/C_val --name C_s1_ad200 --model runs/C_s1/weights/best.pt --epochs 5 --lr0 0.0005 --freeze 10 --batch 16 --seed 1
+runs/C_s1_ad50/DONE  | python -m mfl_thesis.train_condition --train tiles/C_adapt50  --val tiles/C_val --name C_s1_ad50  --model runs/C_s1/weights/best.pt --epochs 5 --lr0 0.0005 --freeze 10 --batch 16 --seed 1
+runs/B_s1_ad200/DONE | python -m mfl_thesis.train_condition --train tiles/B_adapt200 --val tiles/B_val --name B_s1_ad200 --model runs/B_s1/weights/best.pt --epochs 5 --lr0 0.0005 --freeze 10 --batch 16 --seed 1
+runs/B_s1_ad50/DONE  | python -m mfl_thesis.train_condition --train tiles/B_adapt50  --val tiles/B_val --name B_s1_ad50  --model runs/B_s1/weights/best.pt --epochs 5 --lr0 0.0005 --freeze 10 --batch 16 --seed 1
+# 적응 모델은 마지막 에포크(last.pt) 사용 (검증 배관 F 는 적응 대상이 아니므로 best 선택 기준이 될 수 없음)
+preds/C_s1_ad200/DONE | python -m mfl_thesis.infer_images --manifest manifest.csv --cond C --split test --T 1280 --models runs/C_s1_ad200/weights/last.pt,runs/C_s1_ad50/weights/last.pt --outs preds/C_s1_ad200,preds/C_s1_ad50
+preds/B_s1_ad200/DONE | python -m mfl_thesis.infer_images --manifest manifest.csv --cond B --split test --T 1280 --models runs/B_s1_ad200/weights/last.pt,runs/B_s1_ad50/weights/last.pt --outs preds/B_s1_ad200,preds/B_s1_ad50
+eval/C_s1_ad200/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s1_ad200/preds --split test --out eval/C_s1_ad200
+eval/C_s1_ad50/metrics.json  | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s1_ad50/preds  --split test --out eval/C_s1_ad50
+eval/B_s1_ad200/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/B_s1_ad200/preds --split test --out eval/B_s1_ad200
+eval/B_s1_ad50/metrics.json  | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/B_s1_ad50/preds  --split test --out eval/B_s1_ad50

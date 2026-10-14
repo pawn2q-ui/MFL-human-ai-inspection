@@ -1,0 +1,32 @@
+# MFL 졸업논문 2차 실행 큐 (추론 → 평가 → 판단보류). 2026-10-07
+# 전제: queue.txt 의 학습 6회(A_s0, A_s1, B_s0, B_s1, C_s0, C_s1)가 모두 OK. runs\<이름>\weights\best.pt 존재.
+# 실행: python -m mfl_thesis.run_queue queue2.txt   (중단되면 같은 명령으로 재개)
+
+# ---- 1) 즉석 추론 (GPU). 시험 5개 배관 + 검증 배관 F, 시드 2개 모델을 한 번에 ----
+preds/A_s0/DONE        | python -m mfl_thesis.infer_images --manifest manifest.csv --cond A --split test,val --models runs/A_s0/weights/best.pt,runs/A_s1/weights/best.pt --outs preds/A_s0,preds/A_s1
+preds/C_s0/DONE        | python -m mfl_thesis.infer_images --manifest manifest.csv --cond C --split test,val --T 1280 --models runs/C_s0/weights/best.pt,runs/C_s1/weights/best.pt --outs preds/C_s0,preds/C_s1
+preds/B_s0/DONE        | python -m mfl_thesis.infer_images --manifest manifest.csv --cond B --split test,val --T 1280 --models runs/B_s0/weights/best.pt,runs/B_s1/weights/best.pt --outs preds/B_s0,preds/B_s1
+preds/C_s0_nowrap/DONE | python -m mfl_thesis.infer_images --manifest manifest.csv --cond C --split test,val --T 1280 --wrap 0 --models runs/C_s0/weights/best.pt --outs preds/C_s0_nowrap
+
+# ---- 2) 평가 (CPU): 시험 배관 (클래스별 재현율·미탐률·AP, POD/a90, mm 구간, 이음부) ----
+eval/A_s0/metrics.json        | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/A_s0/preds --split test --out eval/A_s0
+eval/A_s1/metrics.json        | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/A_s1/preds --split test --out eval/A_s1
+eval/B_s0/metrics.json        | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/B_s0/preds --split test --out eval/B_s0
+eval/B_s1/metrics.json        | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/B_s1/preds --split test --out eval/B_s1
+eval/C_s0/metrics.json        | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s0/preds --split test --out eval/C_s0
+eval/C_s1/metrics.json        | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s1/preds --split test --out eval/C_s1
+eval/C_s0_nowrap/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s0_nowrap/preds --split test --out eval/C_s0_nowrap
+# 검증 배관 F (보조 결과·임계값 선택용)
+eval/A_s0_val/metrics.json    | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/A_s0/preds --split val --out eval/A_s0_val
+eval/B_s0_val/metrics.json    | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/B_s0/preds --split val --out eval/B_s0_val
+eval/C_s0_val/metrics.json    | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s0/preds --split val --out eval/C_s0_val
+
+# ---- 3) 판단보류 (CPU): E = C 모델, D = B 모델. 점수 선택은 _val 결과로 ----
+defer/E_sub/deferral.json     | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/C_s0/preds --preds2 preds/C_s1/preds --split test --score sub_thr_max --lambda 1 --out defer/E_sub
+defer/E_ens/deferral.json     | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/C_s0/preds --preds2 preds/C_s1/preds --split test --score ensemble --lambda 1 --out defer/E_ens
+defer/E_omm/deferral.json     | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/C_s0/preds --preds2 preds/C_s1/preds --split test --score one_minus_max --lambda 1 --out defer/E_omm
+defer/E_rand/deferral.json    | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/C_s0/preds --split test --score random --out defer/E_rand
+defer/D_sub/deferral.json     | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/B_s0/preds --preds2 preds/B_s1/preds --split test --score sub_thr_max --lambda 1 --out defer/D_sub
+defer/D_ens/deferral.json     | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/B_s0/preds --preds2 preds/B_s1/preds --split test --score ensemble --lambda 1 --out defer/D_ens
+defer/E_sub_val/deferral.json | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/C_s0/preds --preds2 preds/C_s1/preds --split val --score sub_thr_max --lambda 1 --out defer/E_sub_val
+defer/E_ens_val/deferral.json | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/C_s0/preds --preds2 preds/C_s1/preds --split val --score ensemble --lambda 1 --out defer/E_ens_val

@@ -1,0 +1,38 @@
+# MFL 졸업논문 4차 실행 큐 (10/9 금): ① C⁻ '축소 금지 추론' (기존 C 모델, 약 1시간) ② C′ '축소 없는 보정' 학습·추론·평가 (주말 내내, 약 30~36시간) ③ C′ 판단보류
+# 실행: python -m mfl_thesis.run_queue queue4.txt   (중단되면 같은 명령으로 재개 — 끝난 항목은 건너뜀)
+# 주의: D 드라이브 여유 공간 30 GB 이상, 절전 끔, Windows 업데이트 일시 중지. 실행 중인 창은 클릭/드래그 금지(진행 상황은 다른 창에서 type queue.log).
+
+# ---- 1) C⁻: 기존 C 모델(시드 0·1)로 508 mm 배관(D)을 r_y=1.0 으로 추론 (457 mm 배관은 queue3 의 ry100 결과를 재사용) ----
+preds/C_s0_D100/DONE | python -m mfl_thesis.infer_images --manifest manifest.csv --cond C --split test --pipes D --scale 1.252,1.0 --models runs/C_s0/weights/best.pt,runs/C_s1/weights/best.pt --outs preds/C_s0_D100,preds/C_s1_D100
+# 5개 시험 배관 묶음: A,B,C ← r_y 1.0 / D ← r_y 1.0 / J(813 mm, 원래 r_y 1.333) ← 기존 C 예측
+preds/C_s0_clamp/DONE | python -m mfl_thesis.merge_preds --manifest manifest.csv --split test --out preds/C_s0_clamp --src preds/C_s0_ry100:A,B,C --src preds/C_s0_D100:D --src preds/C_s0:J
+preds/C_s1_clamp/DONE | python -m mfl_thesis.merge_preds --manifest manifest.csv --split test --out preds/C_s1_clamp --src preds/C_s1_ry100:A,B,C --src preds/C_s1_D100:D --src preds/C_s1:J
+eval/C_s0_clamp/metrics.json      | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s0_clamp/preds --split test --out eval/C_s0_clamp
+eval/C_s1_clamp/metrics.json      | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s1_clamp/preds --split test --out eval/C_s1_clamp
+eval_full/C_s0_clamp/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s0_clamp/preds --split test --ap-conf 0.01 --out eval_full/C_s0_clamp
+eval_full/C_s1_clamp/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/C_s1_clamp/preds --split test --ap-conf 0.01 --out eval_full/C_s1_clamp
+defer/Ec_sub/deferral.json  | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/C_s0_clamp/preds --preds2 preds/C_s1_clamp/preds --split test --score sub_thr_max --lambda 1 --out defer/Ec_sub
+defer/Ec_ens/deferral.json  | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/C_s0_clamp/preds --preds2 preds/C_s1_clamp/preds --split test --score ensemble --lambda 1 --out defer/Ec_ens
+defer/Ec_rand/deferral.json | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/C_s0_clamp/preds --split test --score random --out defer/Ec_rand
+
+# ---- 2) C′: 기준 해상도 s* = s_y(457 mm) = 0.5982 mm/px → 어떤 배관도 축소하지 않음 (457: ×1.0, 508: ×1.11, 610: ×1.34, 711: ×1.56, 813: ×1.78; 가로 ×1.67) ----
+#      타일 캐시 약 3시간 → 학습 시드당 10~12시간 (40 에포크, 조기 종료 가능) → 추론 두 시드 동시 8~9시간
+tiles/Cp_train/tiles.json | python -m mfl_thesis.make_tiles --manifest manifest.csv --cond C --split train --mode train --T 1280 --s-star 0.5982 --out tiles/Cp_train
+tiles/Cp_val/tiles.json   | python -m mfl_thesis.make_tiles --manifest manifest.csv --cond C --split val --mode train --T 1280 --s-star 0.5982 --out tiles/Cp_val
+runs/Cp_s0/DONE | python -m mfl_thesis.train_condition --train tiles/Cp_train --val tiles/Cp_val --name Cp_s0 --seed 0 --epochs 40 --batch 16
+runs/Cp_s1/DONE | python -m mfl_thesis.train_condition --train tiles/Cp_train --val tiles/Cp_val --name Cp_s1 --seed 1 --epochs 40 --batch 16
+preds/Cp_s0/DONE | python -m mfl_thesis.infer_images --manifest manifest.csv --cond C --split test --T 1280 --s-star 0.5982 --models runs/Cp_s0/weights/best.pt,runs/Cp_s1/weights/best.pt --outs preds/Cp_s0,preds/Cp_s1
+eval/Cp_s0/metrics.json      | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/Cp_s0/preds --split test --out eval/Cp_s0
+eval/Cp_s1/metrics.json      | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/Cp_s1/preds --split test --out eval/Cp_s1
+eval_full/Cp_s0/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/Cp_s0/preds --split test --ap-conf 0.01 --out eval_full/Cp_s0
+eval_full/Cp_s1/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/Cp_s1/preds --split test --ap-conf 0.01 --out eval_full/Cp_s1
+
+# ---- 3) C′ 판단보류 (E′) ----
+defer/Ep_sub/deferral.json  | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/Cp_s0/preds --preds2 preds/Cp_s1/preds --split test --score sub_thr_max --lambda 1 --out defer/Ep_sub
+defer/Ep_ens/deferral.json  | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/Cp_s0/preds --preds2 preds/Cp_s1/preds --split test --score ensemble --lambda 1 --out defer/Ep_ens
+defer/Ep_rand/deferral.json | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/Cp_s0/preds --split test --score random --out defer/Ep_rand
+
+# ---- 4) (시간이 남으면) 검증 배관 F 추론·평가 — 점수 선택 확인용 (약 1시간) ----
+preds/Cp_s0_val/DONE | python -m mfl_thesis.infer_images --manifest manifest.csv --cond C --split val --T 1280 --s-star 0.5982 --models runs/Cp_s0/weights/best.pt,runs/Cp_s1/weights/best.pt --outs preds/Cp_s0_val,preds/Cp_s1_val
+eval/Cp_s0_val/metrics.json | python -m mfl_thesis.evaluate --manifest manifest.csv --preds preds/Cp_s0_val/preds --split val --out eval/Cp_s0_val
+defer/Ep_sub_val/deferral.json | python -m mfl_thesis.deferral --manifest manifest.csv --preds preds/Cp_s0_val/preds --preds2 preds/Cp_s1_val/preds --split val --score sub_thr_max --lambda 1 --out defer/Ep_sub_val

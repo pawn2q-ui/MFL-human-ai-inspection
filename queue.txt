@@ -1,0 +1,19 @@
+# MFL 졸업논문 1차 실행 큐 (T0: 타일 캐시 + A·B·C 학습 × 시드 2). 2026-10-05
+# 형식: 완료표시파일 | 명령   — 완료표시 파일이 있으면 건너뛰므로 중단 뒤 다시 실행해도 이어서 돈다.
+# 순서: A 캐시 → A 학습(파이프라인 점검) → C 캐시 → C 학습 → B 캐시 → B 학습 → 시드 1 반복
+
+tiles/A_train/tiles.json | python -m mfl_thesis.make_tiles --manifest manifest.csv --cond A --split train --mode train --out tiles/A_train
+tiles/A_val/tiles.json   | python -m mfl_thesis.make_tiles --manifest manifest.csv --cond A --split val --mode train --out tiles/A_val
+runs/A_s0/DONE           | python -m mfl_thesis.train_condition --train tiles/A_train --val tiles/A_val --name A_s0 --seed 0 --epochs 60 --batch 16
+
+tiles/C_train/tiles.json | python -m mfl_thesis.make_tiles --manifest manifest.csv --cond C --split train --mode train --T 1280 --out tiles/C_train
+tiles/C_val/tiles.json   | python -m mfl_thesis.make_tiles --manifest manifest.csv --cond C --split val --mode train --T 1280 --out tiles/C_val
+runs/C_s0/DONE           | python -m mfl_thesis.train_condition --train tiles/C_train --val tiles/C_val --name C_s0 --seed 0 --epochs 40 --batch 16
+
+tiles/B_train/tiles.json | python -m mfl_thesis.make_tiles --manifest manifest.csv --cond B --split train --mode train --T 1280 --out tiles/B_train
+tiles/B_val/tiles.json   | python -m mfl_thesis.make_tiles --manifest manifest.csv --cond B --split val --mode train --T 1280 --out tiles/B_val
+runs/B_s0/DONE           | python -m mfl_thesis.train_condition --train tiles/B_train --val tiles/B_val --name B_s0 --seed 0 --epochs 40 --batch 16
+
+runs/A_s1/DONE           | python -m mfl_thesis.train_condition --train tiles/A_train --val tiles/A_val --name A_s1 --seed 1 --epochs 60 --batch 16
+runs/C_s1/DONE           | python -m mfl_thesis.train_condition --train tiles/C_train --val tiles/C_val --name C_s1 --seed 1 --epochs 40 --batch 16
+runs/B_s1/DONE           | python -m mfl_thesis.train_condition --train tiles/B_train --val tiles/B_val --name B_s1 --seed 1 --epochs 40 --batch 16

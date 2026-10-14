@@ -1,0 +1,30 @@
+# MFL 졸업논문 5차 실행 큐 (10/10): ① 루프 실험 H6 — "검토 대상으로 고른 200장"으로 적응 vs 기존 무작위 200장 적응 (B 모델·C 모델)
+#                                  ② 신뢰도 임계값 스윕 (같은 정밀도에서 재현율 비교용, CPU)
+# 실행: python -m mfl_thesis.run_queue queue5.txt   (중단되면 같은 명령으로 재개). 예상 5~6시간 (GPU 약 3.5 h + CPU 약 1.5 h)
+# 주의: 절전 끔, 실행 중인 창 클릭·드래그 금지. 끝나면 results_1024.zip 한 줄(채팅 참고)로 묶어서 올리기
+
+# ---- 1) 검토 대상 선택 (라벨 미사용, 모델 점수만): 시험 배관별 상위 200장 → split=adapt_sel, 나머지 test = 공통 평가 집합 12,740장 ----
+manifest_selB.csv | python -m mfl_thesis.select_review --manifest manifest.csv --preds preds/B_s1/preds --split test --n 200 --score combo --out manifest_selB.csv --list analysis/sel_B.txt
+manifest_selC.csv | python -m mfl_thesis.select_review --manifest manifest.csv --preds preds/C_s1/preds --split test --n 200 --score combo --out manifest_selC.csv --list analysis/sel_C.txt
+
+# ---- 2) 선택 집합 타일 → 5 에포크 미세조정 (기존 무작위 적응과 같은 설정) ----
+tiles/B_adsel200/tiles.json | python -m mfl_thesis.make_tiles --manifest manifest_selB.csv --cond B --split adapt_sel --mode train --T 1280 --out tiles/B_adsel200
+tiles/C_adsel200/tiles.json | python -m mfl_thesis.make_tiles --manifest manifest_selC.csv --cond C --split adapt_sel --mode train --T 1280 --out tiles/C_adsel200
+runs/B_s1_adsel200/DONE | python -m mfl_thesis.train_condition --train tiles/B_adsel200 --val tiles/B_val --name B_s1_adsel200 --model runs/B_s1/weights/best.pt --epochs 5 --lr0 0.0005 --freeze 10 --batch 16 --seed 1
+runs/C_s1_adsel200/DONE | python -m mfl_thesis.train_condition --train tiles/C_adsel200 --val tiles/C_val --name C_s1_adsel200 --model runs/C_s1/weights/best.pt --epochs 5 --lr0 0.0005 --freeze 10 --batch 16 --seed 1
+
+# ---- 3) 공통 평가 집합 추론 (선택 200장 제외된 test) ----
+preds/B_s1_adsel200/DONE | python -m mfl_thesis.infer_images --manifest manifest_selB.csv --cond B --split test --T 1280 --models runs/B_s1_adsel200/weights/last.pt --outs preds/B_s1_adsel200
+preds/C_s1_adsel200/DONE | python -m mfl_thesis.infer_images --manifest manifest_selC.csv --cond C --split test --T 1280 --models runs/C_s1_adsel200/weights/last.pt --outs preds/C_s1_adsel200
+
+# ---- 4) 같은 평가 집합에서 기준 모델 / 무작위 200장 적응 / 선택 200장 적응 평가 ----
+eval_sel/B_s1/metrics.json          | python -m mfl_thesis.evaluate --manifest manifest_selB.csv --preds preds/B_s1/preds          --split test --out eval_sel/B_s1
+eval_sel/B_s1_ad200/metrics.json    | python -m mfl_thesis.evaluate --manifest manifest_selB.csv --preds preds/B_s1_ad200/preds    --split test --out eval_sel/B_s1_ad200
+eval_sel/B_s1_adsel200/metrics.json | python -m mfl_thesis.evaluate --manifest manifest_selB.csv --preds preds/B_s1_adsel200/preds --split test --out eval_sel/B_s1_adsel200
+eval_sel/C_s1/metrics.json          | python -m mfl_thesis.evaluate --manifest manifest_selC.csv --preds preds/C_s1/preds          --split test --out eval_sel/C_s1
+eval_sel/C_s1_ad200/metrics.json    | python -m mfl_thesis.evaluate --manifest manifest_selC.csv --preds preds/C_s1_ad200/preds    --split test --out eval_sel/C_s1_ad200
+eval_sel/C_s1_adsel200/metrics.json | python -m mfl_thesis.evaluate --manifest manifest_selC.csv --preds preds/C_s1_adsel200/preds --split test --out eval_sel/C_s1_adsel200
+
+# ---- 5) 신뢰도 임계값 스윕 (CPU): 검증 F 로 임계값 선택 → 시험 적용 ----
+analysis/sweep_val.csv  | python -m mfl_thesis.sweep_thresholds --manifest manifest.csv --split val  --preds preds/A_s0/preds,preds/A_s1/preds,preds/B_s0/preds,preds/B_s1/preds,preds/C_s0/preds,preds/C_s1/preds,preds/Cp_s0_val/preds,preds/Cp_s1_val/preds --names A_s0,A_s1,B_s0,B_s1,C_s0,C_s1,Cp_s0,Cp_s1 --thr 0.05,0.1,0.15,0.2,0.25,0.3,0.4,0.5,0.6 --out analysis/sweep_val.csv
+analysis/sweep_test.csv | python -m mfl_thesis.sweep_thresholds --manifest manifest.csv --split test --preds preds/A_s0/preds,preds/A_s1/preds,preds/B_s0/preds,preds/B_s1/preds,preds/C_s0/preds,preds/C_s1/preds,preds/C_s0_clamp/preds,preds/C_s1_clamp/preds,preds/Cp_s0/preds,preds/Cp_s1/preds --names A_s0,A_s1,B_s0,B_s1,C_s0,C_s1,C_s0_clamp,C_s1_clamp,Cp_s0,Cp_s1 --thr 0.05,0.1,0.15,0.2,0.25,0.3,0.4,0.5,0.6 --out analysis/sweep_test.csv

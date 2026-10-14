@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite the thesis below."
+title: "A Human–AI Collaborative Inspection Procedure for MFL Defect Detection on Unseen Gas Pipelines: Verifying Diameter Normalization and a Deferral–Adaptation Loop"
+authors:
+  - family-names: Park
+    given-names: Jihun
+    affiliation: "Department of Power Generation Machinery, Chung-Ang University"
+year: 2026
+type: thesis
