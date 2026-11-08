@@ -6,13 +6,18 @@
 보정·타일링 조건(C 계열)으로 돌리려면:
   python -m mfl_thesis.demo --image ... --diameter 711 --model runs/C_s0/weights/best.pt --cond C --s-star 0.7985 --T 1280 --out demo_out
 
-출력: demo_out/<stem>_pred.jpg (박스·신뢰도·mm 크기, 검토 권고 배너), demo_out/<stem>.json (박스 목록, 점수, 권고)
+출력: demo_out/<stem>_pred.jpg (박스·신뢰도·mm 크기, 검토 권고 배너), demo_out/<stem>.json (박스 목록, 점수, 권고),
+      demo_out/review_queue.csv (검토 큐: 우선순위 내림차순 — 판독 소프트웨어의 작업 목록으로 가져가는 용도)
 검토 권고(5.5절): 운영 임계값 이상 검출 수(n_pred)와 임계값 미만 약한 검출의 최대 신뢰도(sub_thr_max)를
 시험 배관 13,740장의 분포(review_reference.json)와 비교하여 상위 백분위를 구하고, 어느 하나라도 상위 --review-top % 안이면 '검사원 검토 권고'.
-여러 장을 한 번에 돌리려면 --image 에 폴더를 주면 된다(폴더 안 png/jpg 전부).
+여러 장을 한 번에 돌리려면 --image 에 폴더를 주면 된다(폴더 안 png/jpg 전부). 검토 큐의 우선순위는 두 백분위의 합(0–200)이고,
+--review-top %에 해당하는 상위 영상에는 in_budget = 1 이 표시된다(검토 예산 = 영상 수, 5.5.1절).
 """
 import argparse
+import csv
 import json
+import math
+import re
 import time
 from pathlib import Path
 
@@ -95,12 +100,42 @@ def run_one(model, img_path, diameter, cond, s_star, T, overlap, wrap, conf, lam
     out_dir.mkdir(parents=True, exist_ok=True); stem = Path(img_path).stem
     cv2.imwrite(str(out_dir / f"{stem}_pred.jpg"), vis, [cv2.IMWRITE_JPEG_QUALITY, 85])
     info = {"image": str(img_path), "diameter_mm": diameter, "s_y_mm_per_px": sy, "cond": cond, "n_windows": len(origins),
-            "elapsed_s": round(time.time() - t0, 2), "n_pred": n_pred, "sub_thr_max": sub_max, "top_pct_n_pred": round(top_n, 1),
+            "elapsed_s": round(time.time() - t0, 2), "n_pred": n_pred, "damage_boxes": n_dmg, "sub_thr_max": sub_max, "top_pct_n_pred": round(top_n, 1),
             "top_pct_sub": round(top_s, 1), "extrapolation": e_p, "review_recommended": bool(review), "reason": reason,
             "detections": [{"cls": CLASSES[int(c)], "conf": round(float(s), 3), "x1": float(x1), "y1": float(y1), "x2": float(x2), "y2": float(y2),
                             "axial_mm": float(x2 - x1), "circ_mm": float((y2 - y1) * sy)} for c, s, x1, y1, x2, y2 in op]}
     (out_dir / f"{stem}.json").write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf-8")
     return info
+
+
+def pipe_from_stem(stem, default="-"):
+    """'Test_A_0000468' / 'A_000123' 같은 파일명에서 배관 ID 한 글자를 뽑는다(없으면 default)."""
+    m = re.match(r"^(?:[A-Za-z]+_)?([A-Z])[_-]", stem)
+    return m.group(1) if m else default
+
+
+def write_review_queue(infos, out_dir, budget_pct, pipe_label=""):
+    """폴더 단위 검토 큐(review_queue.csv): 우선순위 = 검출 수 백분위 + 약한 검출 백분위(0–200) 내림차순.
+    상위 budget_pct %(영상 수 기준)에는 in_budget = 1. review_recommended 는 영상별 권고(어느 한 백분위라도 상위 --review-top %)."""
+    rows = []
+    for inf in infos:
+        stem = Path(inf["image"]).stem
+        pct_n, pct_s = 100.0 - inf["top_pct_n_pred"], 100.0 - inf["top_pct_sub"]
+        rows.append({"image": Path(inf["image"]).name, "pipe": pipe_label or pipe_from_stem(stem), "diameter_mm": inf["diameter_mm"],
+                     "priority": round(pct_n + pct_s, 1), "review_recommended": int(inf["review_recommended"]),
+                     "n_pred": inf["n_pred"], "damage_boxes": inf["damage_boxes"], "sub_thr_max": round(inf["sub_thr_max"], 3),
+                     "top_pct_n_pred": inf["top_pct_n_pred"], "top_pct_sub": inf["top_pct_sub"], "extrapolation": round(inf["extrapolation"], 3),
+                     "reason": "; ".join(inf["reason"]), "elapsed_s": inf["elapsed_s"], "pred_json": f"{stem}.json", "pred_image": f"{stem}_pred.jpg"})
+    rows.sort(key=lambda r: (-r["priority"], -r["n_pred"], -r["sub_thr_max"], r["image"]))
+    k = int(math.ceil(len(rows) * budget_pct / 100.0)) if rows else 0
+    for i, r in enumerate(rows, 1):
+        r["rank"], r["in_budget"] = i, int(i <= k)
+    cols = ["rank", "in_budget", "review_recommended", "priority", "image", "pipe", "diameter_mm", "n_pred", "damage_boxes", "sub_thr_max",
+            "top_pct_n_pred", "top_pct_sub", "extrapolation", "reason", "elapsed_s", "pred_json", "pred_image"]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with open(out_dir / "review_queue.csv", "w", newline="", encoding="utf-8-sig") as f:   # utf-8-sig: 한글 Windows 엑셀에서 바로 열림
+        w = csv.DictWriter(f, fieldnames=cols); w.writeheader(); w.writerows(rows)
+    return rows, k
 
 
 def main():
@@ -117,6 +152,7 @@ def main():
     ap.add_argument("--conf", type=float, default=A_CONF)
     ap.add_argument("--review-top", type=float, default=20.0, help="검출 수 또는 약한 검출이 시험 분포 상위 몇 %% 안이면 검토 권고")
     ap.add_argument("--out", default="demo_out")
+    ap.add_argument("--pipe", default="", help="검토 큐에 적을 배관 ID (비우면 파일명에서 추출)")
     a = ap.parse_args()
     if a.cond != "A" and a.s_star is None:
         raise SystemExit("--cond C 계열은 --s-star 가 필요합니다 (C 0.7985, C′ 0.5982)")
@@ -126,9 +162,14 @@ def main():
     p = Path(a.image)
     images = sorted([q for q in p.iterdir() if q.suffix.lower() in (".png", ".jpg", ".jpeg")]) if p.is_dir() else [p]
     out = Path(a.out)
+    infos = []
     for q in images:
         info = run_one(model, q, a.diameter, a.cond, a.s_star, a.T, a.overlap, a.wrap, a.conf, a.lam, a.s_range, a.review_top, ref, out)
+        infos.append(info)
         print(json.dumps({k: v for k, v in info.items() if k != "detections"}, ensure_ascii=False))
+    rows, k = write_review_queue(infos, out, a.review_top, a.pipe)
+    n_rec = sum(r["review_recommended"] for r in rows)
+    print(f"검토 큐: {len(rows)}장 중 권고 {n_rec}장, 예산 상위 {a.review_top:g}% = {k}장 → {out / 'review_queue.csv'}")
     print("저장:", out.resolve())
 
 
